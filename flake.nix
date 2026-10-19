@@ -3,6 +3,7 @@
 #
 # Build (cross-compiled x86_64 -> riscv64):
 #   nix build .#sdImage     # bootable SD image (default target; ./result/sd-image/*.img)
+#   nix build .#sdImageUefi # firmware-only SD image: OpenSBI + U-Boot with UEFI, no OS
 #   nix build .#uboot       # U-Boot blobs: FSBL.bin, bootinfo_emmc.bin, u-boot.itb
 #   nix build .#opensbi     # OpenSBI fw_dynamic.itb
 #   nix build .#nixosConfigurations.bpi-f3-nvme.config.system.build.toplevel  # NVMe-root system
@@ -103,7 +104,9 @@
             packages = {
               default = inputs.self.nixosConfigurations.bpi-f3-cross.config.system.build.sdImage;
               sdImage = inputs.self.nixosConfigurations.bpi-f3-cross.config.system.build.sdImage;
+              sdImageUefi = pkgsCross.bpi-f3-sd-image-uefi;
               uboot = pkgsCross.bpi-f3-uboot;
+              ubootUefi = pkgsCross.bpi-f3-uboot-uefi;
               opensbi = pkgsCross.k1-opensbi;
             };
 

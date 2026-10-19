@@ -29,14 +29,21 @@
 #
 # `src` is injected by the overlay from the `uboot-spacemit` flake input
 # (github.com/pyavitz/spacemit-u-boot, tag k1-bl-v2.2.9-release).
+#
+# `withUefi` forces U-Boot's UEFI implementation (EFI_LOADER + bootefi) on,
+# for the firmware-only SD image (../sd-image-uefi) that boots a
+# UEFI OS loader (EFI/BOOT/BOOTRISCV64.EFI) rather than a NixOS extlinux.conf.
+# It also applies patch 010, which passes the OS the mainline device tree
+# (spacemit/k1-bananapi-f3.dtb, if present on the ESP) instead of U-Boot's own.
 {
   lib,
   buildUBoot,
   src,
+  withUefi ? false,
 }:
 
 buildUBoot {
-  version = "2022.10-k1-bl-v2.2.9";
+  version = "2022.10-k1-bl-v2.2.9" + lib.optionalString withUefi "-uefi";
   inherit src;
 
   defconfig = "k1_defconfig";
@@ -50,7 +57,10 @@ buildUBoot {
     ./patches/007-efi_loader-suppress-error-print-message.patch
     ./patches/008-Quiet-MBR-support.patch
     ./patches/009-Fixup-circular-deps.patch
-  ];
+  ]
+  # Ours: bootefi gets the mainline k1-bananapi-f3.dtb from the ESP instead of
+  # U-Boot's own vendor device tree.
+  ++ lib.optional withUefi ./patches/010-UEFI-kernel-device-tree.patch;
 
   # Extra Kconfig from armbian's post_config_uboot_target__extra_configs_for_bananapi_f3.
   # Appended to .config; `make` runs syncconfig to fold them in.
@@ -63,6 +73,15 @@ buildUBoot {
     # Override the Armbian patch's CONFIG_LOCALVERSION=" Armbian" so the U-Boot/SPL
     # banner reads "U-Boot 2022.10 NixOS" instead.
     CONFIG_LOCALVERSION=" NixOS"
+  ''
+  + lib.optionalString withUefi ''
+    # UEFI: run EFI applications (bootefi), the EFI boot manager (BootXXXX
+    # variables), GPT for EFI system partitions, and efidebug to manage them.
+    CONFIG_EFI_LOADER=y
+    CONFIG_CMD_BOOTEFI=y
+    CONFIG_CMD_BOOTEFI_BOOTMGR=y
+    CONFIG_EFI_PARTITION=y
+    CONFIG_CMD_EFIDEBUG=y
   '';
 
   # Build the default target (SPL -> FSBL.bin + bootinfo_*.bin, plus u-boot proper),

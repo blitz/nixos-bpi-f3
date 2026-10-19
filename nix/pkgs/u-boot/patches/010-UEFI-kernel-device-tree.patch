@@ -1,0 +1,76 @@
+From 17c8a0ef402ec196896efce8b1bcbfb9c8c2b0c6 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 19 Oct 2026 16:03:28 +0200
+Subject: [PATCH] k1-x: pass the kernel device tree to UEFI OS loaders
+
+bootefi without an FDT argument installs U-Boot's own control device
+tree, which is the vendor tree. Load ${fdtfile} from the EFI system
+partition (same prefixes as upstream distro boot) and pass it to
+bootefi, and point fdtfile at the mainline BPI-F3 device tree.
+---
+ board/spacemit/k1-x/k1-x.env | 24 ++++++++++++++++++++++--
+ include/configs/k1-x.h       |  2 +-
+ 2 files changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/board/spacemit/k1-x/k1-x.env b/board/spacemit/k1-x/k1-x.env
+index 463cbd07..41bcd17a 100644
+--- a/board/spacemit/k1-x/k1-x.env
++++ b/board/spacemit/k1-x/k1-x.env
+@@ -4,6 +4,26 @@ nvme_devtype=nvme
+ nvme_devnum=0
+ nvme_bootpart=1
+ 
++// UEFI: hand the OS loader the kernel's device tree, not U-Boot's own
++// (vendor) one, which bootefi falls back to when given no FDT. Look for
++// ${fdtfile} in the same places as upstream distro boot.
++efi_dtb_prefixes=/ /dtb/ /dtb/current/
++
++boot_efi=setenv efi_fdt; \
++	for prefix in ${efi_dtb_prefixes}; do \
++		if test -e ${devtype} ${devnum}:${distro_bootpart} ${prefix}${fdtfile}; then \
++			load ${devtype} ${devnum}:${distro_bootpart} ${fdt_addr_r} ${prefix}${fdtfile} && setenv efi_fdt ${fdt_addr_r}; \
++		fi; \
++	done; \
++	load ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr_r} EFI/BOOT/BOOTRISCV64.EFI; \
++	if test -n "${efi_fdt}"; then \
++		echo "Booting EFI/BOOT/BOOTRISCV64.EFI with ${fdtfile}"; \
++		bootefi ${kernel_addr_r} ${efi_fdt}; \
++	else \
++		echo "No ${fdtfile} found, using the U-Boot device tree"; \
++		bootefi ${kernel_addr_r}; \
++	fi
++
+ autoboot=if test -e ${devtype} ${devnum}:${distro_bootpart} /extlinux/extlinux.conf; then \
+ 		sysboot ${devtype} ${devnum}:${distro_bootpart} any 0x2000000 /extlinux/extlinux.conf; \
+ 	elif test -e ${devtype} ${devnum}:${distro_bootpart} /boot/extlinux/extlinux.conf; then \
+@@ -13,7 +33,7 @@ autoboot=if test -e ${devtype} ${devnum}:${distro_bootpart} /extlinux/extlinux.c
+ 	elif test -e ${devtype} ${devnum}:${distro_bootpart} /boot/boot.scr; then \
+ 		load ${devtype} ${devnum}:${distro_bootpart} 0x2000000 /boot/boot.scr; source 0x2000000; \
+ 	elif test -e ${devtype} ${devnum}:${distro_bootpart} EFI/BOOT/BOOTRISCV64.EFI; then \
+-		load ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr_r} EFI/BOOT/BOOTRISCV64.EFI; bootefi ${kernel_addr_r}; \
++		run boot_efi; \
+ 	fi;
+ 	nvme part; \
+ 	setenv devtype $nvme_devtype; \
+@@ -28,7 +48,7 @@ autoboot=if test -e ${devtype} ${devnum}:${distro_bootpart} /extlinux/extlinux.c
+ 	elif test -e ${devtype} ${devnum}:${distro_bootpart} /boot/boot.scr; then \
+ 		load ${devtype} ${devnum}:${distro_bootpart} 0x2000000 /boot/boot.scr; source 0x2000000; \
+ 	elif test -e ${devtype} ${devnum}:${distro_bootpart} EFI/BOOT/BOOTRISCV64.EFI; then \
+-		load ${devtype} ${devnum}:${distro_bootpart} ${kernel_addr_r} EFI/BOOT/BOOTRISCV64.EFI; bootefi ${kernel_addr_r}; \
++		run boot_efi; \
+ 	fi;
+ 
+ bootcmd=echo "Loading K1-X Environment ..."; \
+diff --git a/include/configs/k1-x.h b/include/configs/k1-x.h
+index fcab226e..6269fd57 100644
+--- a/include/configs/k1-x.h
++++ b/include/configs/k1-x.h
+@@ -250,7 +250,7 @@ enum private_part_offset {
+ 	"kernel_addr_r=" KERNEL_ADDR_R "\0" \
+ 	"ramdisk_addr_r=" RAMDISK_ADDR_R "\0" \
+ 	"fdtoverlay_addr_r=" FDTOVERLAY_ADDR_R "\0" \
+-	"fdtfile=spacemit/" CONFIG_DEFAULT_DEVICE_TREE ".dtb\0" \
++	"fdtfile=spacemit/k1-bananapi-f3.dtb\0" \
+ 	BOOTENV_DEVICE_CONFIG
+ 
+ 

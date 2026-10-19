@@ -13,4 +13,10 @@ inputs: final: _prev: {
   bpi-f3-uboot = final.callPackage ./pkgs/u-boot {
     src = inputs.uboot-spacemit;
   };
+
+  # Same U-Boot with UEFI (EFI_LOADER/bootefi) forced on.
+  bpi-f3-uboot-uefi = final.bpi-f3-uboot.override { withUefi = true; };
+
+  # Firmware-only SD image: OpenSBI + the UEFI U-Boot, no OS.
+  bpi-f3-sd-image-uefi = final.callPackage ./pkgs/sd-image-uefi { };
 }

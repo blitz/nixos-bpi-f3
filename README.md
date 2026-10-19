@@ -90,7 +90,11 @@ The [Quick start](#quick-start) covers the common path (`nix build .#sdImage`). 
 nix build .#sdImage    # default; the full SD image -> result/sd-image/*.img (uncompressed)
 nix build .#uboot      # bootloader only: FSBL.bin, bootinfo_emmc.bin, u-boot.itb
 nix build .#opensbi    # OpenSBI only: fw_dynamic.itb
+nix build .#sdImageUefi  # firmware-only SD image: OpenSBI + U-Boot with UEFI, no OS
+nix build .#ubootUefi    # the UEFI U-Boot used by sdImageUefi
 ```
+
+`sdImageUefi` (`result/sd-image/nixos-bpi-f3-sd-image-uefi.img`, 16 MiB) contains only the boot chain — `bootinfo_emmc.bin`, `FSBL.bin`, `fw_dynamic.itb` and a U-Boot with UEFI (`bootefi`, the EFI boot manager, `efidebug`) explicitly enabled — at the same raw offsets as the full image, with no partition table and no OS. `dd` it to an SD card to use the board as a UEFI-capable firmware for an OS on another device: U-Boot's boot script falls through to the NVMe (partition 1) and runs `EFI/BOOT/BOOTRISCV64.EFI` if there is no `extlinux.conf`/`boot.scr`. The OS gets the mainline device tree if the ESP has `spacemit/k1-bananapi-f3.dtb` under `/`, `/dtb/` or `/dtb/current/` (U-Boot's `$fdtfile`); otherwise `bootefi` falls back to U-Boot's own vendor device tree, which mainline kernels don't expect. If you add partitions to the card yourself, use an MBR table starting at ≥16 MiB (see [Why MBR](#why-the-partition-table-is-mbr-not-gpt)).
 
 Building `.#uboot` / `.#opensbi` on their own is handy when iterating on the (highest-risk) vendor bootloader build without rebuilding the kernel and rootfs.
 
