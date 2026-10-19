@@ -59,7 +59,7 @@ nix/
   cross.nix                            # cross target: riscv64, rv64gcv / lp64d
   overlay.nix                          # exposes the bootloader packages
   modules/
-    default.nix                        # aggregator: imports the modules below
+    default.nix                        # aggregator: the modules below, minus the image modules
     kernel.nix                         # kernel package + forced K1 Kconfig + initrd
     hardware.nix                       # device tree + the SD-card-slot overlay + firmware
     sd-overlay.dts                     # the re-added SD-slot controller node (mmc@d4280000)
@@ -68,10 +68,13 @@ nix/
     sd-image/
       sd-image.nix                     # patched generic sd-image module (MBR + raw-blob dd hook)
       sd-image-bpi-f3.nix              # board image: extlinux, kernelParams, dd of the boot blobs
+    usb-image.nix                      # UEFI USB-drive image: GPT, ESP + systemd-boot, ext4 root
+    nvme/                              # root-on-NVMe system + migrator
   pkgs/
     u-boot/default.nix                 # Armbian U-Boot fork -> FSBL.bin, bootinfo_emmc.bin, u-boot.itb
-    u-boot/patches/                    # Armbian's u-boot-spacemit-k1 patch set (vendored)
+    u-boot/patches/                    # Armbian's patch set (vendored) + ours (010+, UEFI build only)
     opensbi/default.nix                # vendor OpenSBI -> fw_dynamic.itb
+    sd-image-uefi/default.nix          # firmware-only SD image (boot blobs, UEFI U-Boot)
 ```
 
 ## Development
@@ -92,9 +95,12 @@ nix build .#uboot      # bootloader only: FSBL.bin, bootinfo_emmc.bin, u-boot.it
 nix build .#opensbi    # OpenSBI only: fw_dynamic.itb
 nix build .#sdImageUefi  # firmware-only SD image: OpenSBI + U-Boot with UEFI, no OS
 nix build .#ubootUefi    # the UEFI U-Boot used by sdImageUefi
+nix build .#usbImage     # NixOS on a USB drive: plain UEFI disk with systemd-boot
 ```
 
-`sdImageUefi` (`result/sd-image/nixos-bpi-f3-sd-image-uefi.img`, 16 MiB) contains only the boot chain — `bootinfo_emmc.bin`, `FSBL.bin`, `fw_dynamic.itb` and a U-Boot with UEFI (`bootefi`, the EFI boot manager, `efidebug`) explicitly enabled — at the same raw offsets as the full image, with no partition table and no OS. `dd` it to an SD card to use the board as a UEFI-capable firmware for an OS on another device: U-Boot's boot script falls through to the NVMe (partition 1) and runs `EFI/BOOT/BOOTRISCV64.EFI` if there is no `extlinux.conf`/`boot.scr`. The OS gets the mainline device tree if the ESP has `spacemit/k1-bananapi-f3.dtb` under `/`, `/dtb/` or `/dtb/current/` (U-Boot's `$fdtfile`); otherwise `bootefi` falls back to U-Boot's own vendor device tree, which mainline kernels don't expect. If you add partitions to the card yourself, use an MBR table starting at ≥16 MiB (see [Why MBR](#why-the-partition-table-is-mbr-not-gpt)).
+`sdImageUefi` (`result/sd-image/nixos-bpi-f3-sd-image-uefi.img`, 16 MiB) contains only the boot chain — `bootinfo_emmc.bin`, `FSBL.bin`, `fw_dynamic.itb` and a U-Boot with UEFI (`bootefi`, the EFI boot manager, `efidebug`) explicitly enabled — at the same raw offsets as the full image, with no partition table and no OS. `dd` it to an SD card to use the board as a UEFI-capable firmware for an OS on another device: U-Boot's boot script tries the first USB drive, then the NVMe (partition 1 each), and runs `EFI/BOOT/BOOTRISCV64.EFI` if there is no `extlinux.conf`/`boot.scr`. The OS gets the mainline device tree if the ESP has `spacemit/k1-bananapi-f3.dtb` under `/`, `/dtb/` or `/dtb/current/` (U-Boot's `$fdtfile`); otherwise `bootefi` falls back to U-Boot's own vendor device tree, which mainline kernels don't expect. If you add partitions to the card yourself, use an MBR table starting at ≥16 MiB (see [Why MBR](#why-the-partition-table-is-mbr-not-gpt)).
+
+`usbImage` (`result/usb-image/nixos-bpi-f3-usb-image-*.img`) is the same NixOS system as the SD image, as a plain UEFI disk with no board firmware: a GPT with a FAT32 ESP (`ESP`: systemd-boot, kernel, initrd, DTB) and an ext4 root (`NIXOS_USB`, grows to fill the drive on first boot). `dd` it to a USB drive and boot with the `sdImageUefi` card in the slot. systemd-boot passes the mainline device tree (with the SD-slot overlay) to the kernel through its `devicetree` entry, and on-device `nixos-rebuild` updates the ESP as on any UEFI NixOS.
 
 Building `.#uboot` / `.#opensbi` on their own is handy when iterating on the (highest-risk) vendor bootloader build without rebuilding the kernel and rootfs.
 

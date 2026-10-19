@@ -4,6 +4,7 @@
 # Build (cross-compiled x86_64 -> riscv64):
 #   nix build .#sdImage     # bootable SD image (default target; ./result/sd-image/*.img)
 #   nix build .#sdImageUefi # firmware-only SD image: OpenSBI + U-Boot with UEFI, no OS
+#   nix build .#usbImage    # UEFI USB-drive image (systemd-boot), booted via sdImageUefi
 #   nix build .#uboot       # U-Boot blobs: FSBL.bin, bootinfo_emmc.bin, u-boot.itb
 #   nix build .#opensbi     # OpenSBI fw_dynamic.itb
 #   nix build .#nixosConfigurations.bpi-f3-nvme.config.system.build.toplevel  # NVMe-root system
@@ -60,18 +61,21 @@
           overlays = [ overlay ];
         };
 
-        # Modules shared by the SD-root and NVMe-root systems.
+        # Modules shared by all systems (SD-root, NVMe-root and USB).
         commonModules = [
           { nixpkgs.pkgs = pkgsCross; }
           ./nix/modules
         ];
+
+        # Systems that boot from the SD image (extlinux on its FAT partition).
+        sdModules = commonModules ++ [ ./nix/modules/sd-image/sd-image-bpi-f3.nix ];
 
         # NVMe-root system: same as the SD system but with `/` on the NVMe.
         # Built ahead of the SD system so its toplevel can be shipped inside the
         # SD image (see nix/modules/nvme/provision.nix).
         nvmeSystem = nixpkgs.lib.nixosSystem {
           system = "x86_64-linux";
-          modules = commonModules ++ [ ./nix/modules/nvme/root.nix ];
+          modules = sdModules ++ [ ./nix/modules/nvme/root.nix ];
         };
       in
       {
@@ -89,12 +93,19 @@
               specialArgs = {
                 nvmeToplevel = nvmeSystem.config.system.build.toplevel;
               };
-              modules = commonModules ++ [ ./nix/modules/nvme/provision.nix ];
+              modules = sdModules ++ [ ./nix/modules/nvme/provision.nix ];
             };
 
             # NVMe-root system. Switched into by `bpi-f3-nvme-install`; future
             # `nixos-rebuild`s on the device target this configuration.
             bpi-f3-nvme = nvmeSystem;
+
+            # USB-drive system: plain UEFI disk (ESP with systemd-boot + root),
+            # booted by the firmware-only SD card (sdImageUefi).
+            bpi-f3-usb = nixpkgs.lib.nixosSystem {
+              system = "x86_64-linux";
+              modules = commonModules ++ [ ./nix/modules/usb-image.nix ];
+            };
           };
         };
 
@@ -105,6 +116,7 @@
               default = inputs.self.nixosConfigurations.bpi-f3-cross.config.system.build.sdImage;
               sdImage = inputs.self.nixosConfigurations.bpi-f3-cross.config.system.build.sdImage;
               sdImageUefi = pkgsCross.bpi-f3-sd-image-uefi;
+              usbImage = inputs.self.nixosConfigurations.bpi-f3-usb.config.system.build.usbImage;
               uboot = pkgsCross.bpi-f3-uboot;
               ubootUefi = pkgsCross.bpi-f3-uboot-uefi;
               opensbi = pkgsCross.k1-opensbi;

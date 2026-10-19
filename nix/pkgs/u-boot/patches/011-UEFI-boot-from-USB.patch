@@ -1,0 +1,65 @@
+From d15aa817a6d4861a90f0c24f18f3591163c1aa48 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 19 Oct 2026 16:15:03 +0200
+Subject: [PATCH] k1-x: also boot from USB mass storage
+
+Factor the per-device boot attempt into scan_dev and try the first USB
+mass-storage device (partition 1) between the boot device and the
+NVMe, so a UEFI USB drive (EFI/BOOT/BOOTRISCV64.EFI) boots without
+touching the SD card or the NVMe.
+---
+ board/spacemit/k1-x/k1-x.env | 30 +++++++++++++++++-------------
+ 1 file changed, 17 insertions(+), 13 deletions(-)
+
+diff --git a/board/spacemit/k1-x/k1-x.env b/board/spacemit/k1-x/k1-x.env
+index 41bcd17a..9c4ba9da 100644
+--- a/board/spacemit/k1-x/k1-x.env
++++ b/board/spacemit/k1-x/k1-x.env
+@@ -24,7 +24,8 @@ boot_efi=setenv efi_fdt; \
+ 		bootefi ${kernel_addr_r}; \
+ 	fi
+ 
+-autoboot=if test -e ${devtype} ${devnum}:${distro_bootpart} /extlinux/extlinux.conf; then \
++// Try one device (${devtype} ${devnum}:${distro_bootpart}).
++scan_dev=if test -e ${devtype} ${devnum}:${distro_bootpart} /extlinux/extlinux.conf; then \
+ 		sysboot ${devtype} ${devnum}:${distro_bootpart} any 0x2000000 /extlinux/extlinux.conf; \
+ 	elif test -e ${devtype} ${devnum}:${distro_bootpart} /boot/extlinux/extlinux.conf; then \
+ 		sysboot ${devtype} ${devnum}:${distro_bootpart} any 0x2000000 /boot/extlinux/extlinux.conf; \
+@@ -34,22 +35,25 @@ autoboot=if test -e ${devtype} ${devnum}:${distro_bootpart} /extlinux/extlinux.c
+ 		load ${devtype} ${devnum}:${distro_bootpart} 0x2000000 /boot/boot.scr; source 0x2000000; \
+ 	elif test -e ${devtype} ${devnum}:${distro_bootpart} EFI/BOOT/BOOTRISCV64.EFI; then \
+ 		run boot_efi; \
+-	fi;
++	fi
++
++usb_devtype=usb
++usb_devnum=0
++usb_bootpart=1
++
++// Boot device (SD/eMMC), then the first USB mass-storage device, then NVMe.
++autoboot=run scan_dev; \
++	echo "Running USB Scan ..."; \
++	usb start; \
++	setenv devtype $usb_devtype; \
++	setenv devnum $usb_devnum; \
++	setenv distro_bootpart $usb_bootpart; \
++	run scan_dev; \
+ 	nvme part; \
+ 	setenv devtype $nvme_devtype; \
+ 	setenv devnum $nvme_devnum; \
+ 	setenv distro_bootpart $nvme_bootpart; \
+-	if test -e ${devtype} ${devnum}:${distro_bootpart} /extlinux/extlinux.conf; then \
+-		sysboot ${devtype} ${devnum}:${distro_bootpart} any 0x2000000 /extlinux/extlinux.conf; \
+-	elif test -e ${devtype} ${devnum}:${distro_bootpart} /boot/extlinux/extlinux.conf; then \
+-		sysboot ${devtype} ${devnum}:${distro_bootpart} any 0x2000000 /boot/extlinux/extlinux.conf; \
+-	elif test -e ${devtype} ${devnum}:${distro_bootpart} /boot.scr; then \
+-		load ${devtype} ${devnum}:${distro_bootpart} 0x2000000 /boot.scr; source 0x2000000; \
+-	elif test -e ${devtype} ${devnum}:${distro_bootpart} /boot/boot.scr; then \
+-		load ${devtype} ${devnum}:${distro_bootpart} 0x2000000 /boot/boot.scr; source 0x2000000; \
+-	elif test -e ${devtype} ${devnum}:${distro_bootpart} EFI/BOOT/BOOTRISCV64.EFI; then \
+-		run boot_efi; \
+-	fi;
++	run scan_dev
+ 
+ bootcmd=echo "Loading K1-X Environment ..."; \
+ 	echo ""; \

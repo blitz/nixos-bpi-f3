@@ -34,7 +34,8 @@
 # for the firmware-only SD image (../sd-image-uefi) that boots a
 # UEFI OS loader (EFI/BOOT/BOOTRISCV64.EFI) rather than a NixOS extlinux.conf.
 # It also applies patch 010, which passes the OS the mainline device tree
-# (spacemit/k1-bananapi-f3.dtb, if present on the ESP) instead of U-Boot's own.
+# (spacemit/k1-bananapi-f3.dtb, if present on the ESP) instead of U-Boot's own,
+# and 011, which tries the first USB drive between the SD card and the NVMe.
 {
   lib,
   buildUBoot,
@@ -59,8 +60,11 @@ buildUBoot {
     ./patches/009-Fixup-circular-deps.patch
   ]
   # Ours: bootefi gets the mainline k1-bananapi-f3.dtb from the ESP instead of
-  # U-Boot's own vendor device tree.
-  ++ lib.optional withUefi ./patches/010-UEFI-kernel-device-tree.patch;
+  # U-Boot's own vendor device tree, and USB drives are tried before the NVMe.
+  ++ lib.optionals withUefi [
+    ./patches/010-UEFI-kernel-device-tree.patch
+    ./patches/011-UEFI-boot-from-USB.patch
+  ];
 
   # Extra Kconfig from armbian's post_config_uboot_target__extra_configs_for_bananapi_f3.
   # Appended to .config; `make` runs syncconfig to fold them in.
