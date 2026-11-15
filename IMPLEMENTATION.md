@@ -1,6 +1,6 @@
 # Implementation Plan: NixOS flake for Banana Pi BPI-F3 (SpacemiT K1, RISC-V)
 
-> Status of execution is tracked in [`PROGRESS.md`](./PROGRESS.md).
+> Status of execution is tracked in [`PROGRESS.md`](./PROGRESS.md). **Historical.** This is the original plan for the SD-root NixOS image, which was removed on 2026-11-15; the flake now builds a firmware-only SD card and a UEFI USB-drive image. See the README and `PROGRESS.md`.
 
 ## Context
 

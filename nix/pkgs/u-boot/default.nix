@@ -1,8 +1,8 @@
-# SpacemiT vendor U-Boot 2022.10 for the K1 (Banana Pi BPI-F3).
+# SpacemiT vendor U-Boot 2022.10 for the K1 (Banana Pi BPI-F3), with UEFI.
 #
 # The K1 BootROM boot chain expects several structured blobs at fixed sector
-# offsets on the boot medium (see modules/sd-image/sd-image-bpi-f3.nix). This
-# derivation produces the three that come out of the U-Boot tree:
+# offsets on the boot medium (see ../sd-image-uefi). This derivation produces
+# the three that come out of the U-Boot tree:
 #
 #   FSBL.bin          -> sector 1     (the SPL, wrapped + RSA2048-signed by tools/build_binary_file.py)
 #   bootinfo_emmc.bin -> sector 0     (BootROM boot-info header; emitted alongside FSBL.bin)
@@ -21,35 +21,33 @@
 # distro:
 #   - its SPL loads OpenSBI/U-Boot only from GPT partitions *named* "opensbi"/"uboot"
 #     (common/spl/spl_mmc.c); 001-MBR-support adds the raw-offset fallback
-#     (opensbi -> sector 0x500/1280, uboot -> 0x800/2048) that our MBR image relies on;
-#   - BOOT_TARGET_DEVICES only lists QEMU and it boots via bespoke env scripts, not
-#     extlinux; 002 adds the mmc boot target + kernel/fdt/ramdisk load addresses and
-#     004 adds syslinux/extlinux support, which NixOS's generic-extlinux-compatible needs.
+#     (opensbi -> sector 0x500/1280, uboot -> 0x800/2048) that our card relies on;
+#   - BOOT_TARGET_DEVICES only lists QEMU and it boots via bespoke env scripts; 002
+#     adds the mmc boot target + kernel/fdt/ramdisk load addresses and 004 the
+#     extlinux/boot.scr/EFI boot script.
 # (005/006 are OrangePi-only; 008 just quiets 001's debug prints.)
+#
+# Ours on top: UEFI is pinned on (extraConfig below), 010 passes bootefi the
+# mainline device tree (spacemit/k1-bananapi-f3.dtb, if present on the ESP)
+# instead of U-Boot's own, and 011 tries the first USB drive between the SD card
+# and the NVMe.
 #
 # `src` is injected by the overlay from the `uboot-spacemit` flake input
 # (github.com/pyavitz/spacemit-u-boot, tag k1-bl-v2.2.9-release).
-#
-# `withUefi` forces U-Boot's UEFI implementation (EFI_LOADER + bootefi) on,
-# for the firmware-only SD image (../sd-image-uefi) that boots a
-# UEFI OS loader (EFI/BOOT/BOOTRISCV64.EFI) rather than a NixOS extlinux.conf.
-# It also applies patch 010, which passes the OS the mainline device tree
-# (spacemit/k1-bananapi-f3.dtb, if present on the ESP) instead of U-Boot's own,
-# and 011, which tries the first USB drive between the SD card and the NVMe.
 {
   lib,
   buildUBoot,
   src,
-  withUefi ? false,
 }:
 
 buildUBoot {
-  version = "2022.10-k1-bl-v2.2.9" + lib.optionalString withUefi "-uefi";
+  version = "2022.10-k1-bl-v2.2.9";
   inherit src;
 
   defconfig = "k1_defconfig";
 
-  # Armbian's u-boot-spacemit-k1 patch set (vendored from armbian-build), in order.
+  # Armbian's u-boot-spacemit-k1 patch set (vendored from armbian-build), in
+  # order, then ours (010+).
   extraPatches = [
     ./patches/001-MBR-support.patch
     ./patches/002-SpacemiT-K1X-Fixups.patch
@@ -58,16 +56,12 @@ buildUBoot {
     ./patches/007-efi_loader-suppress-error-print-message.patch
     ./patches/008-Quiet-MBR-support.patch
     ./patches/009-Fixup-circular-deps.patch
-  ]
-  # Ours: bootefi gets the mainline k1-bananapi-f3.dtb from the ESP instead of
-  # U-Boot's own vendor device tree, and USB drives are tried before the NVMe.
-  ++ lib.optionals withUefi [
     ./patches/010-UEFI-kernel-device-tree.patch
     ./patches/011-UEFI-boot-from-USB.patch
   ];
 
-  # Extra Kconfig from armbian's post_config_uboot_target__extra_configs_for_bananapi_f3.
-  # Appended to .config; `make` runs syncconfig to fold them in.
+  # Extra Kconfig from armbian's post_config_uboot_target__extra_configs_for_bananapi_f3,
+  # plus UEFI. Appended to .config; `make` runs syncconfig to fold them in.
   extraConfig = ''
     CONFIG_SD_BOOT=y
     CONFIG_EXT4_WRITE=y
@@ -77,8 +71,6 @@ buildUBoot {
     # Override the Armbian patch's CONFIG_LOCALVERSION=" Armbian" so the U-Boot/SPL
     # banner reads "U-Boot 2022.10 NixOS" instead.
     CONFIG_LOCALVERSION=" NixOS"
-  ''
-  + lib.optionalString withUefi ''
     # UEFI: run EFI applications (bootefi), the EFI boot manager (BootXXXX
     # variables), GPT for EFI system partitions, and efidebug to manage them.
     CONFIG_EFI_LOADER=y
@@ -96,7 +88,7 @@ buildUBoot {
   ];
 
   extraMeta = {
-    description = "U-Boot for the Banana Pi BPI-F3 (SpacemiT K1) — Armbian fork + patches, emits FSBL.bin / bootinfo_emmc.bin / u-boot.itb";
+    description = "U-Boot for the Banana Pi BPI-F3 (SpacemiT K1) — Armbian fork + patches + UEFI, emits FSBL.bin / bootinfo_emmc.bin / u-boot.itb";
     homepage = "https://github.com/pyavitz/spacemit-u-boot";
     license = lib.licenses.gpl2Plus;
     platforms = [ "riscv64-linux" ];

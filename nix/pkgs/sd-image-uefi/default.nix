@@ -1,30 +1,31 @@
 # Firmware-only SD image for the Banana Pi BPI-F3 (SpacemiT K1): just the
 # boot chain (BootROM -> FSBL -> OpenSBI -> U-Boot with UEFI), no OS.
 #
-# The blobs sit at the same raw sector offsets as in the NixOS SD image (see
-# ../../modules/sd-image/sd-image-bpi-f3.nix); there is no partition table. The
+# The blobs sit at the raw sector offsets the BootROM/SPL expect (Armbian's
+# write_uboot_platform() layout); there is no partition table. The
 # SPL's raw-offset fallback (u-boot patch 001) loads OpenSBI/U-Boot when no
 # partitions are found, so it needs none. U-Boot then boots an OS from another
 # device, including UEFI OS loaders (EFI/BOOT/BOOTRISCV64.EFI) via bootefi.
 {
   lib,
   runCommand,
-  bpi-f3-uboot-uefi,
+  bpi-f3-uboot,
   k1-opensbi,
 }:
 
 let
-  # 16 MiB: the same gap the NixOS image leaves ahead of its first partition.
+  # 16 MiB: comfortably clears u-boot.itb and leaves room to add an MBR
+  # partition after it (GPT would collide with FSBL.bin at sector 1).
   imageSectors = 16 * 2048;
 
   # 512-byte sectors, matching Armbian's write_uboot_platform().
   blobs = [
     {
-      file = "${bpi-f3-uboot-uefi}/bootinfo_emmc.bin";
+      file = "${bpi-f3-uboot}/bootinfo_emmc.bin";
       sector = 0;
     }
     {
-      file = "${bpi-f3-uboot-uefi}/FSBL.bin";
+      file = "${bpi-f3-uboot}/FSBL.bin";
       sector = 1;
     }
     {
@@ -32,7 +33,7 @@ let
       sector = 1280;
     }
     {
-      file = "${bpi-f3-uboot-uefi}/u-boot.itb";
+      file = "${bpi-f3-uboot}/u-boot.itb";
       sector = 2048;
     }
   ];

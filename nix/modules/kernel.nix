@@ -8,7 +8,7 @@
   boot = {
     kernelPackages = pkgs.linuxPackages_latest;
 
-    # Storage/clock/pinctrl/serial built in (=yes) so the board reaches its rootfs
+    # Clock/pinctrl/serial/storage built in (=yes) so the board reaches its rootfs
     # without relying on initrd module ordering. Symbol names verified against the
     # mainline riscv defconfig.
     kernelPatches = [
@@ -27,9 +27,7 @@
           SERIAL_8250_CONSOLE = yes;
           SERIAL_8250_DW = yes;
 
-          # SD / eMMC host controllers (builtin). The block layer (MMC_BLOCK) is
-          # =m upstream; rather than rebuild the kernel to make it builtin, we
-          # force-load mmc_block in the initrd (initrd.kernelModules below).
+          # SD / eMMC host controllers
           MMC_SDHCI = yes;
           MMC_SDHCI_PLTFM = yes;
           MMC_SDHCI_OF_K1 = yes;
@@ -39,15 +37,6 @@
           NET_VENDOR_SPACEMIT = yes;
           SPACEMIT_K1_EMAC = module;
         };
-      }
-      {
-        # Make `reboot`/`poweroff` actually reset the board. The vendor OpenSBI
-        # has no SBI System-Reset (SRST) extension, so Linux's only working
-        # reset path is the P1 PMIC driver (POWER_RESET_SPACEMIT_P1, builtin) —
-        # but the MFD core doesn't register its cell, so it never binds. This
-        # adds the cell. See the patch header for the full rationale.
-        name = "spacemit-p1-reboot-cell";
-        patch = ./spacemit-p1-reboot-cell.patch;
       }
     ];
 
@@ -59,21 +48,20 @@
         "xhci_hcd"
         "usbhid"
         "hid_generic"
-        # Root-on-NVMe (see nix/modules/nvme). The K1 PCIe controller is built
-        # into the kernel (CONFIG_PCIE_SPACEMIT_K1=y / PHY_SPACEMIT_K1_PCIE=y),
-        # so the bus is enumerated during kernel init and udev autoloads the
-        # NVMe driver in stage-1. Only BLK_DEV_NVME is modular (=m upstream),
-        # so it must be made available to the initrd here; nvme_core and the
-        # rest of the closure are pulled in automatically.
+        # Root on a USB drive: the K1 USB stack (DWC3 + its USB2 PHY + the
+        # onboard hub) and usb-storage/uas. udev autoloads them in stage 1.
+        "dwc3"
+        "dwc3-generic-plat"
+        "phy-k1-usb2"
+        "onboard_usb_dev"
+        "usb_storage"
+        "uas"
+        # NVMe over the builtin K1 PCIe controller (only BLK_DEV_NVME is =m).
         "nvme"
       ];
 
-      # MMC_BLOCK is =m upstream and udev didn't autoload it in the initrd (root
-      # on the SD card then timed out). Force-load it early so /dev/mmcblk* appears.
-      kernelModules = [ "mmc_block" ];
-
       # Let us into a root shell in the initrd if root isn't found, so failures are
-      # debuggable (dmesg, ls /dev/mmc*) instead of a locked emergency console.
+      # debuggable (dmesg, lsblk) instead of a locked emergency console.
       systemd.emergencyAccess = true;
     };
 

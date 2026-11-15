@@ -9,14 +9,11 @@ inputs: final: _prev: {
     src = inputs.opensbi-spacemit;
   };
 
-  # SpacemiT vendor U-Boot 2022.10 -> FSBL.bin, bootinfo_emmc.bin, u-boot.itb
+  # SpacemiT vendor U-Boot 2022.10 with UEFI -> FSBL.bin, bootinfo_emmc.bin, u-boot.itb
   bpi-f3-uboot = final.callPackage ./pkgs/u-boot {
     src = inputs.uboot-spacemit;
   };
 
-  # Same U-Boot with UEFI (EFI_LOADER/bootefi) forced on.
-  bpi-f3-uboot-uefi = final.bpi-f3-uboot.override { withUefi = true; };
-
-  # Firmware-only SD image: OpenSBI + the UEFI U-Boot, no OS.
+  # Firmware-only SD image: OpenSBI + U-Boot, no OS.
   bpi-f3-sd-image-uefi = final.callPackage ./pkgs/sd-image-uefi { };
 }

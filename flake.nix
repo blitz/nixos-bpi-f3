@@ -2,22 +2,16 @@
 # Banana Pi F3 flake.nix
 #
 # Build (cross-compiled x86_64 -> riscv64):
-#   nix build .#sdImage     # bootable SD image (default target; ./result/sd-image/*.img)
-#   nix build .#sdImageUefi # firmware-only SD image: OpenSBI + U-Boot with UEFI, no OS
-#   nix build .#usbImage    # UEFI USB-drive image (systemd-boot), booted via sdImageUefi
+#   nix build .#usbImage    # NixOS on a UEFI USB drive (default target; ./result/usb-image/*.img)
+#   nix build .#sdImageUefi # firmware-only SD card: boot blobs + U-Boot with UEFI, no OS
 #   nix build .#uboot       # U-Boot blobs: FSBL.bin, bootinfo_emmc.bin, u-boot.itb
 #   nix build .#opensbi     # OpenSBI fw_dynamic.itb
-#   nix build .#nixosConfigurations.bpi-f3-nvme.config.system.build.toplevel  # NVMe-root system
-#   nix flake check         # eval both configs + treefmt + statix
+#   nix flake check         # eval the config + treefmt + statix
 #   nix fmt                 # format the tree (nixfmt + deadnix; prettier for *.md)
 #
-# Flash the built image to the SD card (replace /dev/sdb with your card!):
-# sudo umount /dev/sdb1 && sudo umount /dev/sdb2
-# sudo dd if=$(readlink -f result/sd-image/*.img) of=/dev/sdb bs=4M conv=fsync status=progress; sync; sudo eject /dev/sdb
-#
-# NVMe needs to be wiped to retest the full insall process.  Once wiped, the boot happens via SD card,
-# and then from SD the NVMe gets formatted and installed
-# sudo bpi-f3-nvme-wipe
+# Flash (replace /dev/sdX / /dev/sdY with your SD card / USB drive!):
+# sudo dd if=$(readlink -f result-uefi/sd-image/*.img) of=/dev/sdX bs=4M conv=fsync status=progress
+# sudo dd if=$(readlink -f result/usb-image/*.img) of=/dev/sdY bs=4M conv=fsync status=progress
 #
 {
   description = "NixOS for the Banana Pi BPI-F3 (SpacemiT K1, RISC-V), cross-compiled from x86_64";
@@ -61,22 +55,7 @@
           overlays = [ overlay ];
         };
 
-        # Modules shared by all systems (SD-root, NVMe-root and USB).
-        commonModules = [
-          { nixpkgs.pkgs = pkgsCross; }
-          ./nix/modules
-        ];
-
-        # Systems that boot from the SD image (extlinux on its FAT partition).
-        sdModules = commonModules ++ [ ./nix/modules/sd-image/sd-image-bpi-f3.nix ];
-
-        # NVMe-root system: same as the SD system but with `/` on the NVMe.
-        # Built ahead of the SD system so its toplevel can be shipped inside the
-        # SD image (see nix/modules/nvme/provision.nix).
-        nvmeSystem = nixpkgs.lib.nixosSystem {
-          system = "x86_64-linux";
-          modules = sdModules ++ [ ./nix/modules/nvme/root.nix ];
-        };
+        usbImage = inputs.self.nixosConfigurations.bpi-f3-usb.config.system.build.usbImage;
       in
       {
         systems = [ "x86_64-linux" ];
@@ -85,27 +64,15 @@
         flake = {
           overlays.default = overlay;
 
-          nixosConfigurations = {
-            # SD-root system (what the SD image boots). Carries the NVMe-root
-            # toplevel + the `bpi-f3-nvme-install` migrator (nvme/provision.nix).
-            bpi-f3-cross = nixpkgs.lib.nixosSystem {
-              system = "x86_64-linux";
-              specialArgs = {
-                nvmeToplevel = nvmeSystem.config.system.build.toplevel;
-              };
-              modules = sdModules ++ [ ./nix/modules/nvme/provision.nix ];
-            };
-
-            # NVMe-root system. Switched into by `bpi-f3-nvme-install`; future
-            # `nixos-rebuild`s on the device target this configuration.
-            bpi-f3-nvme = nvmeSystem;
-
-            # USB-drive system: plain UEFI disk (ESP with systemd-boot + root),
-            # booted by the firmware-only SD card (sdImageUefi).
-            bpi-f3-usb = nixpkgs.lib.nixosSystem {
-              system = "x86_64-linux";
-              modules = commonModules ++ [ ./nix/modules/usb-image.nix ];
-            };
+          # USB-drive system: plain UEFI disk (ESP with systemd-boot + root),
+          # booted by the firmware-only SD card (sdImageUefi). On-device
+          # `nixos-rebuild`s target this configuration.
+          nixosConfigurations.bpi-f3-usb = nixpkgs.lib.nixosSystem {
+            system = "x86_64-linux";
+            modules = [
+              { nixpkgs.pkgs = pkgsCross; }
+              ./nix/modules
+            ];
           };
         };
 
@@ -113,12 +80,10 @@
           { pkgs, ... }:
           {
             packages = {
-              default = inputs.self.nixosConfigurations.bpi-f3-cross.config.system.build.sdImage;
-              sdImage = inputs.self.nixosConfigurations.bpi-f3-cross.config.system.build.sdImage;
+              default = usbImage;
+              inherit usbImage;
               sdImageUefi = pkgsCross.bpi-f3-sd-image-uefi;
-              usbImage = inputs.self.nixosConfigurations.bpi-f3-usb.config.system.build.usbImage;
               uboot = pkgsCross.bpi-f3-uboot;
-              ubootUefi = pkgsCross.bpi-f3-uboot-uefi;
               opensbi = pkgsCross.k1-opensbi;
             };
 

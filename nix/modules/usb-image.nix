@@ -3,10 +3,8 @@
 # A plain UEFI disk with no board firmware on it: the board boots from the
 # firmware-only SD card (`.#sdImageUefi`), whose U-Boot finds the drive's
 # EFI/BOOT/BOOTRISCV64.EFI (u-boot patch 011) and starts systemd-boot from it.
-# Same system as the SD image otherwise (kernel.nix, hardware.nix, base.nix,
-# user-group.nix via ./default.nix).
 #
-# Layout (GPT; the SD image needs MBR only because of its raw boot blobs):
+# Layout (GPT; only the firmware card needs MBR, because of its raw boot blobs):
 #   1  ESP   FAT32  systemd-boot, loader entries, kernel, initrd, DTB
 #   2  ext4  NIXOS_USB  root filesystem (expands to fill the drive on first boot)
 #
@@ -48,33 +46,20 @@ in
       grub.enable = false;
       systemd-boot = {
         enable = true;
-        # Matches generic-extlinux-compatible's default on the SD image; keeps
-        # the ESP from filling up with old kernels.
+        # Keeps the ESP from filling up with old kernels.
         configurationLimit = 20;
       };
       # U-Boot's UEFI variables are not persistent; never try to write them.
       efi.canTouchEfiVariables = false;
     };
 
-    # As in sd-image-bpi-f3.nix. No 256-byte cmdline cap here (systemd-boot,
-    # not U-Boot, passes the command line), but nothing else is needed.
     kernelParams = [
+      # Direct UART0 earlycon (0xd4017000, reg-shift=2/io-width=4 -> mmio32).
+      # Prints from the very start; earlycon=sbi produced nothing on this board.
       "earlycon=uart8250,mmio32,0xd4017000"
       "console=ttyS0,115200"
       "rootwait"
       "rw"
-    ];
-
-    # Root on a USB drive. Same priority as kernel.nix's mkForce list, so the
-    # two lists are merged. xhci/sd_mod are already there; the K1 USB stack
-    # (DWC3 + its USB2 PHY + the onboard hub) and usb-storage/uas are added.
-    initrd.availableKernelModules = lib.mkForce [
-      "dwc3"
-      "dwc3-generic-plat"
-      "phy-k1-usb2"
-      "onboard_usb_dev"
-      "usb_storage"
-      "uas"
     ];
   };
 
@@ -94,9 +79,11 @@ in
   };
 
   # First boot: register the shipped Nix store, then grow the root partition
-  # to fill the drive. Same order and reasoning as sd-image.nix (registration
-  # first, resize best-effort); additionally moves the backup GPT header to
-  # the end of the (larger) drive before growing partition 2.
+  # to fill the drive. Registration comes first and the resize is best-effort,
+  # so a failed resize can never leave the store unregistered (which breaks
+  # nixos-rebuild much later with a baffling "no substituter" error). The
+  # backup GPT header is moved to the end of the (larger) drive before
+  # partition 2 is grown.
   boot.postBootCommands = ''
     if [ -f /nix-path-registration ]; then
       set -euo pipefail
