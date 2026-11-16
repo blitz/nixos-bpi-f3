@@ -164,7 +164,7 @@ in
         EOF
 
         cat > esp/loader/entries/nixos-generation-1.conf <<EOF
-        title NixOS
+        title ${config.system.nixos.distroName}
         version Generation 1 ${config.system.nixos.label}
         linux /$kernel
         initrd /$initrd
